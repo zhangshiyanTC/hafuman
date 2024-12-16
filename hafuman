@@ -1,0 +1,218 @@
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+
+// 定义哈夫曼树节点结构体
+typedef struct HuffmanNode {
+    char data;
+    int frequency;
+    struct HuffmanNode* left;
+    struct HuffmanNode* right;
+} HuffmanNode;
+
+// 定义哈夫曼编码表结构体
+typedef struct HuffmanCode {
+    char data;
+    char* code;
+} HuffmanCode;
+
+// 比较函数，用于给优先队列（这里简单用数组模拟）排序，按照频率从小到大排序
+int compare(const void* a, const void* b) {
+    return ((HuffmanNode*)a)->frequency - ((HuffmanNode*)b)->frequency;
+}
+
+// 创建新的哈夫曼树节点
+HuffmanNode* createNode(char data, int frequency) {
+    HuffmanNode* node = (HuffmanNode*)malloc(sizeof(HuffmanNode));
+    node->data = data;
+    node->frequency = frequency;
+    node->left = node->right = NULL;
+    return node;
+}
+
+// 构建哈夫曼树
+HuffmanNode* buildHuffmanTree(HuffmanNode* nodes[], int size) {
+    while (size > 1) {
+        // 排序，使得频率最小的在前面
+        qsort(nodes, size, sizeof(HuffmanNode*), compare);
+        // 取出频率最小的两个节点
+        HuffmanNode* left = nodes[0];
+        HuffmanNode* right = nodes[1];
+        // 创建新节点，其频率为两个子节点频率之和
+        HuffmanNode* parent = createNode('\0', left->frequency + right->frequency);
+        parent->left = left;
+        parent->right = right;
+        // 将新节点放入数组，去掉已合并的两个节点
+        nodes[0] = parent;
+        for (int i = 1; i < size - 1; i++) {
+            nodes[i] = nodes[i + 1];
+        }
+        size--;
+    }
+    return nodes[0];
+}
+
+// 递归生成哈夫曼编码表
+void generateHuffmanCodes(HuffmanNode* root, char code[], int top, HuffmanCode codes[], int* index) {
+    if (root->left) {
+        code[top] = '0';
+        generateHuffmanCodes(root->left, code, top + 1, codes, index);
+    }
+    if (root->right) {
+        code[top] = '1';
+        generateHuffmanCodes(root->right, code, top + 1, codes, index);
+    }
+    if (root->left == NULL && root->right == NULL) {
+        codes[*index].data = root->data;
+        codes[*index].code = (char*)malloc((top + 1) * sizeof(char));
+        strncpy(codes[*index].code, code, top);
+        codes[*index].code[top] = '\0';
+        (*index)++;
+    }
+}
+
+// 压缩文件函数
+void compressFile(const char* inputFileName, const char* outputFileName) {
+    FILE* inputFile = fopen(inputFileName, "r");
+    if (inputFile == NULL) {
+        perror("无法打开输入文件");
+        return;
+    }
+
+    // 统计字符频率
+    int frequency[256] = { 0 };  // 假设ASCII码字符范围
+    char ch;
+    while ((ch = fgetc(inputFile)) != EOF) {
+        frequency[(unsigned char)ch]++;
+    }
+    fclose(inputFile);
+
+    // 创建节点数组
+    HuffmanNode* nodes[256];
+    int size = 0;
+    for (int i = 0; i < 256; i++) {
+        if (frequency[i] > 0) {
+            nodes[size++] = createNode((char)i, frequency[i]);
+        }
+    }
+
+    // 构建哈夫曼树
+    HuffmanNode* root = buildHuffmanTree(nodes, size);
+    // 生成哈夫曼编码表
+    HuffmanCode codes[256];
+    int index = 0;
+    char code[256];
+    generateHuffmanCodes(root, code, 0, codes, &index);
+
+    // 再次打开输入文件读取内容并转换编码写入输出文件
+    inputFile = fopen(inputFileName, "r");
+    FILE* outputFile = fopen(outputFileName, "wb");
+    if (outputFile == NULL) {
+        perror("无法打开输出文件");
+        fclose(inputFile);
+        return;
+    }
+
+    while ((ch = fgetc(inputFile)) != EOF) {
+        for (int i = 0; i < index; i++) {
+            if (codes[i].data == ch) {
+                fwrite(codes[i].code, sizeof(char), strlen(codes[i].code), outputFile);
+                break;
+            }
+        }
+    }
+
+    fclose(inputFile);
+    fclose(outputFile);
+
+    // 释放编码表内存
+    for (int i = 0; i < index; i++) {
+        free(codes[i].code);
+    }
+}
+
+// 从哈夫曼树还原字符的函数
+char decodeChar(HuffmanNode* root, const char* code, int* pos) {
+    HuffmanNode* current = root;
+    while (current->left != NULL && current->right != NULL && code[*pos] != '\0') {
+        if (code[*pos] == '0') {
+            current = current->left;
+        }
+        else {
+            current = current->right;
+        }
+        (*pos)++;
+    }
+    return current->data;
+}
+
+// 还原文件函数
+void decompressFile(const char* inputFileName, const char* outputFileName) {
+    FILE* inputFile = fopen(inputFileName, "rb");
+    if (inputFile == NULL) {
+        perror("无法打开输入文件");
+        return;
+    }
+
+    FILE* outputFile = fopen(outputFileName, "w");
+    if (outputFile == NULL) {
+        perror("无法打开输出文件");
+        fclose(inputFile);
+        return;
+    }
+
+    // 这里假设你之前已经构建好哈夫曼树并且有根节点（可以从保存的信息中获取或者重新构建等方式）
+    HuffmanNode* root = NULL;  // 这里要根据实际情况正确赋值哈夫曼树的根节点
+
+    char buffer[1024];
+    int bufferSize = 0;
+    int pos = 0;
+    while (fread(buffer + bufferSize, sizeof(char), sizeof(buffer) - bufferSize, inputFile) > 0) {
+        bufferSize += fread(buffer + bufferSize, sizeof(char), sizeof(buffer) - bufferSize, inputFile);
+        while (pos < bufferSize) {
+            char ch = decodeChar(root, buffer, &pos);
+            fputc(ch, outputFile);
+        }
+        bufferSize = 0;
+        pos = 0;
+    }
+
+    fclose(inputFile);
+    fclose(outputFile);
+}
+
+int main() {
+    char inputFileName[100];
+    char outputFileName[100];
+    char choice;
+
+    printf("请选择操作 (c: 压缩文件, d: 还原文件): ");
+    scanf("%c", &choice);
+    getchar();  // 吸收换行符
+
+    if (choice == 'c') {
+        printf("请输入要压缩的文本文件路径及文件名: ");
+        scanf("%s", inputFileName);
+        getchar();
+        printf("请输入保存压缩后二进制文件的路径及文件名: ");
+        scanf("%s", outputFileName);
+        getchar();
+        compressFile(inputFileName, outputFileName);
+        printf("压缩完成\n");
+    }
+    else if (choice == 'd') {
+        printf("请输入要还原的二进制文件路径及文件名: ");
+        scanf("%s", inputFileName);
+        getchar();
+        printf("请输入保存还原后文本文件的路径及文件名: ");
+        scanf("%s", outputFileName);
+        getchar();
+        decompressFile(inputFileName, outputFileName);
+        printf("还原完成\n");
+    }
+    else {
+        printf("无效的选择\n");
+    }
+
+    return 0;
+}
